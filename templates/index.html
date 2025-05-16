@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Congestion Analysis</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+    <style>
+        .map { height: 400px; width: 100%; position: relative; }
+        body { font-family: 'Arial', sans-serif; }
+        .map-error { 
+            position: absolute; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            background: rgba(255, 255, 255, 0.9); 
+            padding: 10px; 
+            border-radius: 5px; 
+            color: red; 
+            font-weight: bold; 
+            z-index: 1000; 
+        }
+        .congestion-low { color: #22c55e; }    /* Green */
+        .congestion-medium { color: #eab308; }  /* Yellow */
+        .congestion-high { color: #ef4444; }    /* Red */
+        .congestion-unknown { color: #6b7280; } /* Gray */
+        .best-route { border: 4px solid #22c55e; } /* Green border for best route */
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
+            Traffic Congestion Analysis
+        </h1>
+
+        <!-- Input Form -->
+        <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Enter Route Details</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label for="source" class="block text-gray-600 mb-1">Source Address</label>
+                    <input type="text" id="source" class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., Sydney Opera House, Sydney, NSW, Australia" value="Sydney Opera House, Sydney, NSW, Australia">
+                </div>
+                <div>
+                    <label for="destination" class="block text-gray-600 mb-1">Destination Address</label>
+                    <input type="text" id="destination" class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., Bondi Beach, Sydney, NSW, Australia" value="Bondi Beach, Sydney, NSW, Australia">
+                </div>
+                <div class="flex items-end">
+                    <button id="fetch-routes" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Get Routes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6"></div>
+
+        <!-- Best Route Message -->
+        <div id="best-route-message" class="hidden bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6"></div>
+
+        <!-- Route Maps -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Route 1 -->
+            <div id="route1" class="bg-white shadow-md rounded-lg p-6 hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Route 1</h2>
+                <p class="text-gray-600"><strong>Travel Time:</strong> <span id="time1"></span> minutes</p>
+                <p class="text-gray-600">
+                    <strong>Overall Congestion:</strong> 
+                    <span id="congestion1" class="font-semibold"></span>
+                </p>
+                <p class="text-gray-600"><strong>Cameras Analyzed:</strong> <span id="cameras1"></span></p>
+                <div id="map1" class="map mt-4">
+                    <div id="map1-error" class="map-error hidden">Map failed to load</div>
+                </div>
+            </div>
+
+            <!-- Route 2 -->
+            <div id="route2" class="bg-white shadow-md rounded-lg p-6 hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Route 2</h2>
+                <p class="text-gray-600"><strong>Travel Time:</strong> <span id="time2"></span> minutes</p>
+                <p class="text-gray-600">
+                    <strong>Overall Congestion:</strong> 
+                    <span id="congestion2" class="font-semibold"></span>
+                </p>
+                <p class="text-gray-600"><strong>Cameras Analyzed:</strong> <span id="cameras2"></span></p>
+                <div id="map2" class="map mt-4">
+                    <div id="map2-error" class="map-error hidden">Map failed to load</div>
+                </div>
+            </div>
+
+            <!-- Route 3 -->
+            <div id="route3" class="bg-white shadow-md rounded-lg p-6 hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Route 3</h2>
+                <p class="text-gray-600"><strong>Travel Time:</strong> <span id="time3"></span> minutes</p>
+                <p class="text-gray-600">
+                    <strong>Overall Congestion:</strong> 
+                    <span id="congestion3" class="font-semibold"></span>
+                </p>
+                <p class="text-gray-600"><strong>Cameras Analyzed:</strong> <span id="cameras3"></span></p>
+                <div id="map3" class="map mt-4">
+                    <div id="map3-error" class="map-error hidden">Map failed to load</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Replace with your Mapbox access token (sign up at mapbox.com for a free token)
+        const MAPBOX_ACCESS_TOKEN = 'YOUR_MAPBOX_ACCESS_TOKEN_HERE';
+
+        // Initialize maps object
+        let maps = {
+            1: null,
+            2: null,
+            3: null
+        };
+
+        // Flag to prevent multiple simultaneous fetch requests
+        let isFetching = false;
+
+        // Define route colors
+        const routeColors = {
+            1: '#3b82f6', // Blue
+            2: '#10b981', // Green
+            3: '#8b5cf6'  // Purple
+        };
+
+        // Custom camera icon
+        const cameraIcon = L.icon({
+            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            shadowSize: [41, 41],
+            className: 'camera-marker'
+        });
+
+        // Add custom CSS for camera marker color
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .camera-marker {
+                filter: hue-rotate(30deg); /* Orange hue */
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Custom source and destination icons
+        const sourceIcon = L.icon({
+            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            shadowSize: [41, 41],
+            className: 'source-marker'
+        });
+
+        const destinationIcon = L.icon({
+            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            shadowSize: [41, 41],
+            className: 'destination-marker'
+        });
+
+        style.innerHTML += `
+            .source-marker {
+                filter: hue-rotate(120deg); /* Green hue */
+            }
+            .destination-marker {
+                filter: hue-rotate(0deg); /* Red hue */
+            }
+        `;
+
+        // Function to initialize a single map
+        function initializeMap(mapId, index) {
+            try {
+                const container = document.getElementById(mapId);
+                if (!container) {
+                    throw new Error(`Map container ${mapId} not found`);
+                }
+
+                const map = L.map(mapId).setView([-33.8688, 151.2093], 12); // Default to Sydney
+                console.log(`Map${index} initialized with ID: ${mapId}`);
+
+                const mapboxLayer = MAPBOX_ACCESS_TOKEN !== 'YOUR_MAPBOX_ACCESS_TOKEN_HERE' ? L.tileLayer(
+                    `https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`,
+                    {
+                        attribution: '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                        tileSize: 512,
+                        maxZoom: 18,
+                        zoomOffset: -1,
+                        id: 'mapbox/streets-v11',
+                        accessToken: MAPBOX_ACCESS_TOKEN
+                    }
+                ) : null;
+
+                const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19
+                });
+
+                if (mapboxLayer) {
+                    mapboxLayer.addTo(map).on('tileerror', () => {
+                        console.warn(`Mapbox tiles failed for map${index}, switching to OpenStreetMap`);
+                        mapboxLayer.remove();
+                        osmLayer.addTo(map);
+                    });
+                } else {
+                    console.warn('Mapbox access token not provided, using OpenStreetMap tiles');
+                    osmLayer.addTo(map).on('tileerror', () => {
+                        console.warn(`OpenStreetMap tiles failed for map${index}`);
+                        document.getElementById(`map${index}-error`).classList.remove('hidden');
+                    });
+                }
+
+                map.on('load', () => {
+                    console.log(`Map${index} tiles loaded successfully`);
+                });
+
+                return map;
+            } catch (error) {
+                console.error(`Failed to initialize map${index}:`, error);
+                document.getElementById(`map${index}-error`).classList.remove('hidden');
+                return null;
+            }
+        }
+
+        // Function to set congestion class
+        function setCongestionClass(element, congestion) {
+            element.classList.remove('congestion-low', 'congestion-medium', 'congestion-high', 'congestion-unknown');
+            if (congestion === 'Low') {
+                element.classList.add('congestion-low');
+            } else if (congestion === 'Medium') {
+                element.classList.add('congestion-medium');
+            } else if (congestion === 'High') {
+                element.classList.add('congestion-high');
+            } else {
+                element.classList.add('congestion-unknown');
+            }
+        }
+
+        // Function to fetch and display routes
+        async function fetchRoutes() {
+            if (isFetching) {
+                console.log('Fetch in progress, ignoring new request');
+                return;
+            }
+            isFetching = true;
+
+            const source = document.getElementById('source').value.trim();
+            const destination = document.getElementById('destination').value.trim();
+            const errorDiv = document.getElementById('error');
+            const bestRouteMessageDiv = document.getElementById('best-route-message');
+
+            // Log the input values to verify
+            console.log(`Input Source: ${source}`);
+            console.log(`Input Destination: ${destination}`);
+
+            // Validate inputs
+            if (!source || !destination) {
+                errorDiv.textContent = 'Please enter both source and destination addresses.';
+                errorDiv.classList.remove('hidden');
+                bestRouteMessageDiv.classList.add('hidden');
+                isFetching = false;
+                return;
+            }
+
+            // Clear previous results and maps
+            console.log('Clearing previous maps and containers...');
+            errorDiv.classList.add('hidden');
+            bestRouteMessageDiv.classList.add('hidden');
+            [1, 2, 3].forEach(i => {
+                const routeContainer = document.getElementById(`route${i}`);
+                routeContainer.classList.add('hidden');
+                routeContainer.classList.remove('best-route'); // Clear previous best route styling
+                document.getElementById(`map${i}-error`).classList.add('hidden');
+
+                // Remove existing map instance
+                if (maps[i]) {
+                    try {
+                        maps[i].remove();
+                        console.log(`Successfully removed map${i}`);
+                    } catch (err) {
+                        console.warn(`Error removing map${i}:`, err);
+                    }
+                    maps[i] = null;
+                }
+
+                // Clear the map container's content
+                const container = document.getElementById(`map${i}`);
+                if (container) {
+                    while (container.firstChild) {
+                        container.removeChild(container.firstChild);
+                    }
+                    // Re-append the error div
+                    const errorDiv = document.createElement('div');
+                    errorDiv.id = `map${i}-error`;
+                    errorDiv.className = 'map-error hidden';
+                    errorDiv.textContent = 'Map failed to load';
+                    container.appendChild(errorDiv);
+                    console.log(`Cleared container for map${i}`);
+                }
+            });
+
+            try {
+                console.log('Fetching route data from /api/routes...');
+                const response = await fetch(`/api/routes?source=${encodeURIComponent(source)}&destination=${encodeURIComponent(destination)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const data = await response.json();
+                console.log('Received data:', data);
+
+                if (data.error) {
+                    errorDiv.textContent = data.error;
+                    errorDiv.classList.remove('hidden');
+                    bestRouteMessageDiv.classList.add('hidden');
+                    isFetching = false;
+                    return;
+                }
+
+                if (!Array.isArray(data)) {
+                    throw new Error('Invalid response: Expected an array of routes');
+                }
+
+                // Store route scores to determine the best route
+                const routeScores = [];
+                const congestionWeight = 10; // Weight for congestion score to balance with travel time
+
+                // Process each route
+                data.forEach(route => {
+                    const i = route.id;
+                    console.log(`Processing Route ${i}`);
+
+                    if (!route.points || !Array.isArray(route.points) || route.points.length === 0) {
+                        console.error(`Route ${i} has invalid points`);
+                        document.getElementById(`map${i}-error`).classList.remove('hidden');
+                        return;
+                    }
+                    if (!route.points.every(point => Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number')) {
+                        console.error(`Route ${i} has malformed points:`, route.points);
+                        document.getElementById(`map${i}-error`).classList.remove('hidden');
+                        return;
+                    }
+                    if (!route.cameras || !Array.isArray(route.cameras)) {
+                        console.error(`Route ${i} has invalid cameras data`);
+                        return;
+                    }
+
+                    // Update route info
+                    document.getElementById(`time${i}`).textContent = route.travel_time.toFixed(1) || 'N/A';
+                    const congestionElement = document.getElementById(`congestion${i}`);
+                    congestionElement.textContent = route.congestion || 'Unknown';
+                    setCongestionClass(congestionElement, route.congestion);
+                    document.getElementById(`cameras${i}`).textContent = route.cameras.length || '0';
+
+                    // Calculate route score
+                    const travelTime = parseFloat(route.travel_time) || 0;
+                    let congestionScore = 2; // Default to Medium
+                    if (route.congestion === 'Low') congestionScore = 1;
+                    else if (route.congestion === 'High') congestionScore = 3;
+                    routeScores.push({
+                        id: i,
+                        travelTime: travelTime,
+                        congestionScore: congestionScore,
+                        originalData: route
+                    });
+
+                    // Show the route container
+                    document.getElementById(`route${i}`).classList.remove('hidden');
+                    console.log(`Route ${i} container made visible`);
+
+                    // Initialize map after container is visible
+                    maps[i] = initializeMap(`map${i}`, i);
+                    if (!maps[i]) {
+                        errorDiv.textContent = `Failed to initialize map for Route ${i}.`;
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+
+                    // Add route to map with unique color
+                    try {
+                        const polyline = L.polyline(route.points, {
+                            color: routeColors[i],
+                            weight: 5,
+                            opacity: 0.7
+                        }).addTo(maps[i]).bindPopup(`Route ${i}`);
+                        console.log(`Added polyline for Route ${i}:`, route.points);
+                    } catch (err) {
+                        console.error(`Failed to add polyline for Route ${i}:`, err);
+                        document.getElementById(`map${i}-error`).classList.remove('hidden');
+                    }
+
+                    // Add source and destination markers with custom icons
+                    try {
+                        L.marker([route.source.latitude, route.source.longitude], { icon: sourceIcon })
+                            .addTo(maps[i])
+                            .bindPopup(`<b>Source:</b> ${route.source.name}`);
+                        L.marker([route.destination.latitude, route.destination.longitude], { icon: destinationIcon })
+                            .addTo(maps[i])
+                            .bindPopup(`<b>Destination:</b> ${route.destination.name}`);
+                        console.log(`Added source and destination markers for Route ${i}`);
+                    } catch (err) {
+                        console.error(`Failed to add source/destination markers for Route ${i}:`, err);
+                    }
+
+                    // Add camera markers with custom icon
+                    route.cameras.forEach(cam => {
+                        try {
+                            if (cam.latitude && cam.longitude && typeof cam.latitude === 'number' && typeof cam.longitude === 'number') {
+                                L.marker([cam.latitude, cam.longitude], { icon: cameraIcon })
+                                    .addTo(maps[i])
+                                    .bindPopup(`<b>${cam.description}</b><br>Congestion: ${cam.congestion}`);
+                                console.log(`Added camera marker for ${cam.description} at [${cam.latitude}, ${cam.longitude}]`);
+                            } else {
+                                console.warn(`Invalid coordinates for camera ${cam.description}:`, cam);
+                            }
+                        } catch (err) {
+                            console.error(`Failed to add marker for ${cam.description}:`, err);
+                        }
+                    });
+
+                    // Fit map to bounds
+                    try {
+                        const allPoints = route.points.concat(
+                            route.cameras.filter(cam => cam.latitude && cam.longitude && typeof cam.latitude === 'number' && typeof cam.longitude === 'number')
+                                         .map(cam => [cam.latitude, cam.longitude]),
+                            [[route.source.latitude, route.source.longitude]],
+                            [[route.destination.latitude, route.destination.longitude]]
+                        );
+                        if (allPoints.length > 0) {
+                            const bounds = L.latLngBounds(allPoints);
+                            maps[i].fitBounds(bounds, { padding: [50, 50] });
+                            console.log(`Fit bounds for Route ${i}:`, bounds);
+                        } else {
+                            console.warn(`No valid points to fit bounds for Route ${i}`);
+                            document.getElementById(`map${i}-error`).classList.remove('hidden');
+                        }
+                    } catch (err) {
+                        console.error(`Failed to fit bounds for Route ${i}:`, err);
+                        document.getElementById(`map${i}-error`).classList.remove('hidden');
+                    }
+
+                    // Ensure map renders correctly after being unhidden
+                    setTimeout(() => {
+                        if (maps[i]) {
+                            maps[i].invalidateSize();
+                            console.log(`Invalidated size for map${i}`);
+                            setTimeout(() => {
+                                if (maps[i]) {
+                                    maps[i].invalidateSize();
+                                    console.log(`Forced redraw for map${i}`);
+                                }
+                            }, 1000);
+                        }
+                    }, 500);
+                });
+
+                // Determine the best route
+                if (routeScores.length > 0) {
+                    // Normalize travel times
+                    const travelTimes = routeScores.map(score => score.travelTime);
+                    const maxTravelTime = Math.max(...travelTimes);
+                    const minTravelTime = Math.min(...travelTimes);
+                    const travelTimeRange = maxTravelTime - minTravelTime || 1; // Avoid division by zero
+
+                    // Calculate final scores
+                    routeScores.forEach(score => {
+                        const normalizedTravelTime = (score.travelTime - minTravelTime) / travelTimeRange;
+                        score.finalScore = normalizedTravelTime + congestionWeight * score.congestionScore;
+                        console.log(`Route ${score.id} - Travel Time: ${score.travelTime.toFixed(1)} min, Congestion Score: ${score.congestionScore}, Final Score: ${score.finalScore.toFixed(2)}`);
+                    });
+
+                    // Find the route with the lowest score
+                    const bestRoute = routeScores.reduce((best, current) => current.finalScore < best.finalScore ? current : best, routeScores[0]);
+                    console.log(`Best Route: Route ${bestRoute.id} with score ${bestRoute.finalScore.toFixed(2)}`);
+
+                    // Apply green border to the best route
+                    const bestRouteContainer = document.getElementById(`route${bestRoute.id}`);
+                    bestRouteContainer.classList.add('best-route');
+
+                    // Display best route message
+                    bestRouteMessageDiv.textContent = `Best Route: Route ${bestRoute.id} with Travel Time ${bestRoute.travelTime.toFixed(1)} minutes and Congestion Level ${bestRoute.originalData.congestion}`;
+                    bestRouteMessageDiv.classList.remove('hidden');
+                } else {
+                    console.warn('No routes available to determine the best route.');
+                    bestRouteMessageDiv.textContent = 'No routes available to determine the best route.';
+                    bestRouteMessageDiv.classList.remove('hidden');
+                }
+
+            } catch (err) {
+                console.error('Error fetching or processing routes:', err);
+                if (err.message.includes('Failed to fetch')) {
+                    errorDiv.textContent = 'Failed to connect to the backend. Please ensure the server is running on port 4001.';
+                } else {
+                    errorDiv.textContent = 'An error occurred while rendering the routes. Check the console for details.';
+                }
+                errorDiv.classList.remove('hidden');
+                bestRouteMessageDiv.classList.add('hidden');
+            } finally {
+                isFetching = false;
+                console.log('Fetch completed, isFetching reset to false');
+            }
+        }
+
+        // Event listener for the "Get Routes" button
+        document.getElementById('fetch-routes').addEventListener('click', fetchRoutes);
+
+        // Optionally fetch routes on page load with default values
+        window.addEventListener('load', fetchRoutes);
+    </script>
+</body>
+</html>
