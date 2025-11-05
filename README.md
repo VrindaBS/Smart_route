@@ -20,7 +20,7 @@ Smart Route is an AI-powered system that uses computer vision to detect traffic 
 5. Based on predictions, less congested routes are recommended.
 
 ## Status
-Submitted to Yukti Innovation Challenge 2025 
-Published in MRIT International Conference,October, 2025
+1.Submitted to Yukti Innovation Challenge 2025 
+2.Published in MRIT International Conference,October, 2025
 **Research Paper Link:** [Smart Route Paper](https://drive.google.com/file/d/1QMw4U-e4-dIgpFjFJapB2xaaUkldzEV_/view?usp=sharing)
 
